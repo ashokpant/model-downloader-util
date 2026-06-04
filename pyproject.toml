@@ -1,18 +1,16 @@
 [project]
 name = "modeldownloaderutil"
-version = "1.0.0"
-description = "Unified model downloader util from s3, google bucket, minio, rustfs, git lfs, local path, and url."
+version = "2.0.0"
+description = "Download model files from local paths, HTTP, S3-compatible storage, GCS, and Git LFS."
 authors = [{ name = "Ashok Pant", email = "ashok@treeleaf.ai" }]
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-keywords = ["model", "download", "s3", "google bucket", "rustfs", "minio", "git lfs"]
+keywords = ["model", "download", "s3", "gcs", "rustfs", "minio", "git-lfs"]
 dependencies = [
-    "appdirs>=1.4.4",
     "boto3>=1.43.22",
     "google-cloud-storage>=3.11.0",
-    "pydantic>=2.13.4",
-    "pyyaml>=6.0.3",
+    "platformdirs>=4.3.8",
     "requests>=2.34.2",
     "tenacity>=9.1.4",
     "tqdm>=4.67.3",
@@ -24,6 +22,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["modeldownloaderutil"]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
 
 [tool.uv]
 package = true
@@ -43,5 +44,3 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
-
-

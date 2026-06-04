@@ -3,79 +3,30 @@
 -- Email: asokpant@gmail.com
 -- Created on: 04/06/2026
 """
+from __future__ import annotations
+
 import os
+from pathlib import Path
 from urllib.parse import urlparse
 
 import boto3
 
+from .._download import download_s3_object, download_with_cache
+from ..cache import cache_path, normalize_s3_uri
 from .base import ModelProvider
-from ..cache import cache_path
 
 
 class S3Provider(ModelProvider):
+    def can_handle(self, source: str) -> bool:
+        return source.startswith(("s3://", "minio://", "rustfs://"))
 
-    def can_handle(
-            self,
-            source: str,
-    ) -> bool:
-        return source.startswith(
-            (
-                "s3://",
-                "minio://",
-                "rustfs://",
-            )
-        )
-
-    def download(
-            self,
-            source: str,
-    ) -> str:
-
-        endpoint = None
-
-        if source.startswith("minio://"):
-            endpoint = os.getenv(
-                "MINIO_ENDPOINT"
-            )
-            source = source.replace(
-                "minio://",
-                "s3://",
-                1,
-            )
-
-        elif source.startswith(
-                "rustfs://"
-        ):
-            endpoint = os.getenv(
-                "RUSTFS_ENDPOINT"
-            )
-            source = source.replace(
-                "rustfs://",
-                "s3://",
-                1,
-            )
-
-        dst = cache_path(source)
-
-        if dst.exists():
-            return str(dst)
-
-        parsed = urlparse(source)
-
+    def download(self, source: str, *, force: bool = False) -> Path:
+        normalized, endpoint = normalize_s3_uri(source)
+        destination = cache_path(normalized)
+        parsed = urlparse(normalized)
         bucket = parsed.netloc
         key = parsed.path.lstrip("/")
-        print(f"Downloading from bucket: {bucket}, key: {key} to {dst}")
-        client = boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            aws_access_key_id=os.getenv(
-                "MODEL_ACCESS_KEY"
-            ),
-            aws_secret_access_key=os.getenv(
-                "MODEL_SECRET_KEY"
-            ),
-        )
-
-        client.download_file(bucket, key, str(dst))
-
-        return str(dst)
+        if not bucket or not key:
+            raise ValueError(f"Invalid S3 URI: {source}")
+        client = boto3.client("s3", endpoint_url=endpoint, aws_access_key_id=os.environ.get("MODEL_ACCESS_KEY"), aws_secret_access_key=os.environ.get("MODEL_SECRET_KEY"))
+        return download_with_cache(destination, lambda path: download_s3_object(client, bucket, key, path), force=force)

@@ -3,107 +3,43 @@
 -- Email: asokpant@gmail.com
 -- Created on: 04/06/2026
 """
-import hashlib
-import subprocess
+from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+
+from ..cache import git_file_path, git_repo_dir
 from .base import ModelProvider
-from ..cache import get_cache_dir
 
 
 class GitLFSProvider(ModelProvider):
-
-    def can_handle(
-        self,
-        source: str,
-    ) -> bool:
+    def can_handle(self, source: str) -> bool:
         return source.startswith("git+")
 
-    def download(
-        self,
-        source: str,
-    ) -> str:
+    def download(self, source: str, *, force: bool = False) -> Path:
+        canonical = source[4:]
+        repo_url, _, file_path = canonical.partition("#")
+        if not repo_url or not file_path:
+            raise ValueError(f"Invalid git source (expected git+<url>#<path>): {source}")
 
-        source = source[4:]
+        target = git_file_path(repo_url, file_path)
+        repo_dir = git_repo_dir(repo_url)
+        if target.exists() and not force:
+            return target.resolve()
 
-        repo_url, file_path = source.split(
-            "#",
-            1,
-        )
+        repo_dir.mkdir(parents=True, exist_ok=True)
+        if not (repo_dir / ".git").exists():
+            self._run(["git", "clone", "--filter=blob:none", "--no-checkout", repo_url, str(repo_dir)])
+            self._run(["git", "-C", str(repo_dir), "sparse-checkout", "init", "--no-cone"])
 
-        repo_hash = hashlib.sha256(
-            repo_url.encode()
-        ).hexdigest()[:16]
+        self._run(["git", "-C", str(repo_dir), "sparse-checkout", "set", file_path])
+        self._run(["git", "-C", str(repo_dir), "checkout", "HEAD"])
+        self._run(["git", "-C", str(repo_dir), "lfs", "pull", "--include", file_path])
 
-        repo_dir = (
-            get_cache_dir()
-            / f"repo_{repo_hash}"
-        )
+        if not target.exists():
+            raise FileNotFoundError(f"File not found after git LFS pull: {file_path} in {repo_url}")
+        return target.resolve()
 
-        target = repo_dir / file_path
-
-        if target.exists():
-            return str(target)
-
-        if not repo_dir.exists():
-
-            subprocess.run(
-                [
-                    "git",
-                    "clone",
-                    "--filter=blob:none",
-                    "--no-checkout",
-                    repo_url,
-                    str(repo_dir),
-                ],
-                check=True,
-            )
-
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(repo_dir),
-                    "sparse-checkout",
-                    "init",
-                    "--no-cone",
-                ],
-                check=True,
-            )
-
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo_dir),
-                "sparse-checkout",
-                "set",
-                file_path,
-            ],
-            check=True,
-        )
-
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo_dir),
-                "checkout",
-                "HEAD",
-            ],
-            check=True,
-        )
-
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo_dir),
-                "lfs",
-                "pull",
-                "--include",
-                file_path,
-            ],
-            check=True,
-        )
-
-        return str(target)
+    @staticmethod
+    def _run(cmd: list[str]) -> None:
+        subprocess.run(cmd, check=True)

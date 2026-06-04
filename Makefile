@@ -1,7 +1,7 @@
 .PHONY: install upgrade test clean
 
 install:
-	uv sync
+	uv sync --group dev
 
 upgrade:
 	uv sync --upgrade
