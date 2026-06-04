@@ -5,6 +5,12 @@ Download or resolve model files from local paths, HTTP(S), S3-compatible storage
 ## Install
 
 ```bash
+pip install modeldownloaderutil
+```
+
+From source:
+
+```bash
 uv sync
 ```
 
@@ -51,11 +57,27 @@ Copy `.env.example` to `.env` in the project root (loaded automatically on `down
 | `RUSTFS_ENDPOINT` | Required for `rustfs://` URLs |
 | `MINIO_ENDPOINT` | Required for `minio://` URLs |
 | `MODEL_ACCESS_KEY` / `MODEL_SECRET_KEY` | S3-compatible credentials |
-| `MINIO_ENDPOINT` | MinIO API endpoint |
-| `RUSTFS_ENDPOINT` | RustFS API endpoint |
 
 ## Development
 
 ```bash
 make test
+make build
+```
+
+## Publish to PyPI
+
+Create an API token at [pypi.org](https://pypi.org/manage/account/token/) (scope: project `modeldownloaderutil` or entire account).
+
+```bash
+export UV_PUBLISH_TOKEN=pypi-xxxxxxxx
+make publish
+```
+
+Dry run on TestPyPI first:
+
+```bash
+export UV_PUBLISH_TOKEN=pypi-xxxxxxxx
+make publish-test
+pip install --index-url https://test.pypi.org/simple/ modeldownloaderutil
 ```
