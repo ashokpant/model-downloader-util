@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 from platformdirs import user_cache_dir
 
-APP_NAME = "model-downloader"
+APP_NAME = "model_registry"
 APP_AUTHOR = "treeleaf"
 _SCHEME_ALIASES = {"minio": "s3", "rustfs": "s3"}
 
