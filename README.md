@@ -43,9 +43,13 @@ Default: `~/.cache/model-downloader` (override with `MODEL_CACHE_DIR`).
 
 ## Environment
 
+Copy `.env.example` to `.env` in the project root (loaded automatically on `download_model`).
+
 | Variable | Purpose |
 |----------|---------|
 | `MODEL_CACHE_DIR` | Download cache root (`cache_dir()`) |
+| `RUSTFS_ENDPOINT` | Required for `rustfs://` URLs |
+| `MINIO_ENDPOINT` | Required for `minio://` URLs |
 | `MODEL_ACCESS_KEY` / `MODEL_SECRET_KEY` | S3-compatible credentials |
 | `MINIO_ENDPOINT` | MinIO API endpoint |
 | `RUSTFS_ENDPOINT` | RustFS API endpoint |

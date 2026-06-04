@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .env import load_env
 from .providers.base import ModelProvider
 from .providers.gcs import GCSProvider
 from .providers.git_lfs import GitLFSProvider
@@ -24,6 +25,7 @@ _PROVIDERS: tuple[ModelProvider, ...] = (
 
 
 def download_model(source: str, *, force_download: bool = False) -> Path:
+    load_env()
     for provider in _PROVIDERS:
         if provider.can_handle(source):
             return provider.download(source, force=force_download)
