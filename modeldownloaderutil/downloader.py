@@ -10,6 +10,7 @@ from pathlib import Path
 from .env import load_env
 from .providers.base import ModelProvider
 from .providers.gcs import GCSProvider
+from .providers.git import GitProvider
 from .providers.git_lfs import GitLFSProvider
 from .providers.http import HttpProvider
 from .providers.local import LocalProvider
@@ -21,6 +22,7 @@ _PROVIDERS: tuple[ModelProvider, ...] = (
     S3Provider(),
     GCSProvider(),
     GitLFSProvider(),
+    GitProvider()
 )
 
 
