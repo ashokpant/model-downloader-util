@@ -54,6 +54,11 @@ def git_repo_dir(repo_url: str) -> Path:
     return cache_dir() / "git" / _safe_segment(repo_url)
 
 
+def git_repo_lock_path(repo_url: str) -> Path:
+    """Lock file beside the cached clone so parallel downloads serialize per repo."""
+    return cache_dir() / "git" / f"{_safe_segment(repo_url)}.lock"
+
+
 def git_file_path(repo_url: str, file_path: str) -> Path:
     return git_repo_dir(repo_url) / file_path
 

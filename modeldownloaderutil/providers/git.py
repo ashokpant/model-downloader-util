@@ -9,8 +9,9 @@ import os
 import subprocess
 from pathlib import Path
 
+from ..cache import git_repo_dir, git_repo_lock_path
+from ..lock import exclusive_file_lock
 from .base import ModelProvider
-from ..cache import git_repo_dir
 
 _QUIET = ["-c", "advice.statusUptoDate=false", "-c", "advice.detachedHead=false"]
 
@@ -37,18 +38,22 @@ class GitProvider(ModelProvider):
         if target.exists() and not force:
             return target.resolve()
 
-        repo.mkdir(parents=True, exist_ok=True)
+        with exclusive_file_lock(git_repo_lock_path(repo_url)):
+            if target.exists() and not force:
+                return target.resolve()
 
-        if not (repo / ".git").exists():
-            self._run(["git", *_QUIET, "clone", "--depth=1", "--quiet", repo_url, str(repo)])
-        else:
-            self._run(_git(repo, "pull", "--ff-only", "--quiet"))
+            repo.mkdir(parents=True, exist_ok=True)
 
-        target = repo / relative
-        if target.exists():
-            return target.resolve()
+            if not (repo / ".git").exists():
+                self._run(["git", *_QUIET, "clone", "--depth=1", "--quiet", repo_url, str(repo)])
+            else:
+                self._run(_git(repo, "pull", "--ff-only", "--quiet"))
 
-        raise FileNotFoundError(f"{relative} not found in {repo_url}")
+            target = repo / relative
+            if target.exists():
+                return target.resolve()
+
+            raise FileNotFoundError(f"{relative} not found in {repo_url}")
 
     @staticmethod
     def _run(cmd: list[str]) -> None:

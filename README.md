@@ -37,15 +37,18 @@ path = download_model("https://example.com/model.onnx", force_download=True)
 
 ## Cache
 
-Default: `~/.cache/model-downloader` (override with `MODEL_CACHE_DIR`).
+Default: platformdirs cache for `model_registry` (override with `MODEL_CACHE_DIR`).
 
 ```
-~/.cache/model-downloader/
+<cache>/
   s3/<bucket>/<key>
   gs/<bucket>/<object>
   url/<host>/<path>
   git/<repo_slug>/<file_path>
+  git/<repo_slug>.lock   # serializes parallel Git / Git LFS pulls for the same repo
 ```
+
+Parallel `download_model` calls for different files in the same Git repo are safe: they take a per-repo file lock, then skip work if another process already cached the file.
 
 ## Environment
 
