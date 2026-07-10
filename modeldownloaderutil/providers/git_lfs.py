@@ -7,10 +7,19 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
+import time
 from pathlib import Path
 
 from ..cache import git_file_path, git_repo_dir, git_repo_lock_path
 from ..lock import exclusive_file_lock
+from ..progress import (
+    byte_bar,
+    lfs_pointer_size,
+    progress_enabled,
+    status,
+    update_bar_from_progress_file,
+)
 from .base import ModelProvider
 
 _QUIET = ["-c", "advice.statusUptoDate=false", "-c", "advice.detachedHead=false"]
@@ -51,6 +60,7 @@ class GitLFSProvider(ModelProvider):
             repo_dir.mkdir(parents=True, exist_ok=True)
             repo = str(repo_dir)
             if not (repo_dir / ".git").exists():
+                status(f"Cloning {repo_url} …")
                 self._run(
                     [
                         "git",
@@ -65,18 +75,63 @@ class GitLFSProvider(ModelProvider):
                 )
                 self._run(_git(repo, "sparse-checkout", "init", "--no-cone"))
             else:
+                status(f"Updating {repo_url} …")
                 self._update_repo(repo)
 
             # Use `add` (not `set`) so previously cached files from this repo are kept.
             self._run(_git(repo, "sparse-checkout", "add", sparse_path))
             self._run(_git(repo, "checkout", "-q", "HEAD"))
-            self._run(_git(repo, "lfs", "pull", "--include", relative))
+            self._lfs_pull(repo, relative, target)
 
             if not target.exists():
                 raise FileNotFoundError(
                     f"File not found after git LFS pull: {file_path} in {repo_url}"
                 )
             return target.resolve()
+
+    def _lfs_pull(self, repo: str, relative: str, target: Path) -> None:
+        """Run ``git lfs pull`` with a tqdm byte progress bar when possible."""
+        name = Path(relative).name
+        total = lfs_pointer_size(target)
+        show = progress_enabled()
+
+        if not show:
+            self._run(_git(repo, "lfs", "pull", "--include", relative))
+            return
+
+        fd, progress_name = tempfile.mkstemp(prefix="mdl-lfs-", suffix=".progress")
+        os.close(fd)
+        progress_file = Path(progress_name)
+        try:
+            env = {
+                **os.environ,
+                "GIT_TERMINAL_PROMPT": "0",
+                "GIT_LFS_PROGRESS": str(progress_file),
+            }
+            proc = subprocess.Popen(
+                _git(repo, "lfs", "pull", "--include", relative),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+                stdin=subprocess.DEVNULL,
+            )
+            last = 0
+            with byte_bar(name, total) as bar:
+                while proc.poll() is None:
+                    last = update_bar_from_progress_file(progress_file, bar, last)
+                    time.sleep(0.05)
+                last = update_bar_from_progress_file(progress_file, bar, last)
+                if total and bar.n < total:
+                    bar.update(total - bar.n)
+            stdout, stderr = proc.communicate()
+            if proc.returncode != 0:
+                detail = (stderr or stdout or "").strip() or f"exit {proc.returncode}"
+                raise RuntimeError(
+                    f"git lfs pull --include {relative} failed: {detail}"
+                )
+        finally:
+            progress_file.unlink(missing_ok=True)
 
     def _update_repo(self, repo: str) -> None:
         """Fast-forward the cache clone so newly published remote files are visible."""

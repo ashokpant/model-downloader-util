@@ -50,14 +50,13 @@ def test_git_lfs_uses_sparse_checkout_add(monkeypatch, tmp_path: Path) -> None:
         calls.append(cmd)
         if "clone" in cmd:
             Path(cmd[-1], ".git").mkdir(parents=True, exist_ok=True)
-        if "lfs" in cmd and "pull" in cmd:
-            rel = cmd[cmd.index("--include") + 1]
-            repo = Path(cmd[cmd.index("-C") + 1])
-            out = repo / rel
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(b"x")
+
+    def lfs_pull(repo: str, relative: str, target: Path) -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"x")
 
     monkeypatch.setattr(provider, "_run", run_create)
+    monkeypatch.setattr(provider, "_lfs_pull", lfs_pull)
 
     p1 = provider.download("git+https://github.com/org/repo.git#weights/a.onnx")
     p2 = provider.download("git+https://github.com/org/repo.git#weights/b.onnx")
@@ -73,7 +72,6 @@ def test_git_lfs_uses_sparse_checkout_add(monkeypatch, tmp_path: Path) -> None:
 def test_git_lfs_parallel_downloads_serialize(monkeypatch, tmp_path: Path) -> None:
     """Concurrent downloads of the same repo must not overlap git mutations."""
     import threading
-    import time
 
     monkeypatch.setenv("MODEL_CACHE_DIR", str(tmp_path))
     provider = GitLFSProvider()
@@ -91,17 +89,25 @@ def test_git_lfs_parallel_downloads_serialize(monkeypatch, tmp_path: Path) -> No
             time.sleep(0.05)
             if "clone" in cmd:
                 Path(cmd[-1], ".git").mkdir(parents=True, exist_ok=True)
-            if "lfs" in cmd and "pull" in cmd:
-                rel = cmd[cmd.index("--include") + 1]
-                repo = Path(cmd[cmd.index("-C") + 1])
-                out = repo / rel
-                out.parent.mkdir(parents=True, exist_ok=True)
-                out.write_bytes(b"x")
+        finally:
+            with lock:
+                active -= 1
+
+    def lfs_pull(repo: str, relative: str, target: Path) -> None:
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+        try:
+            time.sleep(0.05)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"x")
         finally:
             with lock:
                 active -= 1
 
     monkeypatch.setattr(provider, "_run", run_create)
+    monkeypatch.setattr(provider, "_lfs_pull", lfs_pull)
     monkeypatch.setattr(provider, "_update_repo", lambda repo: None)
 
     errors: list[BaseException] = []
@@ -129,6 +135,27 @@ def test_git_lfs_parallel_downloads_serialize(monkeypatch, tmp_path: Path) -> No
     assert len(results) == 2
     assert all(p.exists() for p in results)
     assert max_active == 1
+
+
+def test_parse_lfs_progress_and_pointer(tmp_path: Path) -> None:
+    from modeldownloaderutil.progress import byte_bar, lfs_pointer_size, parse_lfs_progress_line
+
+    assert parse_lfs_progress_line("download 1/1 1024/2048 model.onnx") == (1024, 2048)
+    assert parse_lfs_progress_line("bogus") is None
+
+    pointer = tmp_path / "UNetEnh.onnx"
+    pointer.write_text(
+        "version https://git-lfs.github.com/spec/v1\n"
+        "oid sha256:abc\n"
+        "size 10025879\n"
+    )
+    assert lfs_pointer_size(pointer) == 10025879
+    pointer.write_bytes(b"\x00" * 2000)
+    assert lfs_pointer_size(pointer) is None
+
+    with byte_bar("x", 10) as bar:
+        bar.update(10)
+        assert bar.n == 10
 
 
 def test_exclusive_file_lock_blocks(tmp_path: Path) -> None:

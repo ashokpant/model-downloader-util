@@ -48,7 +48,9 @@ Default: platformdirs cache for `model_registry` (override with `MODEL_CACHE_DIR
   git/<repo_slug>.lock   # serializes parallel Git / Git LFS pulls for the same repo
 ```
 
-Parallel `download_model` calls for different files in the same Git repo are safe: they take a per-repo file lock, then skip work if another process already cached the file.
+## Progress
+
+HTTP(S), S3/MinIO/RustFS, GCS, and Git LFS show tqdm byte bars. Plain Git clones/pulls stream native `git --progress` to stderr. Disable with `MODEL_DOWNLOAD_PROGRESS=0` (or `TQDM_DISABLE=1`).
 
 ## Environment
 
@@ -57,6 +59,7 @@ Copy `.env.example` to `.env` in the project root (loaded automatically on `down
 | Variable | Purpose |
 |----------|---------|
 | `MODEL_CACHE_DIR` | Download cache root (`cache_dir()`) |
+| `MODEL_DOWNLOAD_PROGRESS` | Set to `0`/`false` to disable tqdm progress bars |
 | `RUSTFS_ENDPOINT` | Required for `rustfs://` URLs |
 | `MINIO_ENDPOINT` | Required for `minio://` URLs |
 | `MODEL_ACCESS_KEY` / `MODEL_SECRET_KEY` | S3-compatible credentials |
