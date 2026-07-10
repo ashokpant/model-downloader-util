@@ -45,21 +45,37 @@ class GitLFSProvider(ModelProvider):
         repo_dir.mkdir(parents=True, exist_ok=True)
         repo = str(repo_dir)
         if not (repo_dir / ".git").exists():
-            self._run(["git", *_QUIET, "clone", "--quiet", "--filter=blob:none", "--no-checkout", repo_url, repo])
+            self._run(
+                [
+                    "git",
+                    *_QUIET,
+                    "clone",
+                    "--quiet",
+                    "--filter=blob:none",
+                    "--no-checkout",
+                    repo_url,
+                    repo,
+                ]
+            )
             self._run(_git(repo, "sparse-checkout", "init", "--no-cone"))
 
-        self._run(_git(repo, "sparse-checkout", "set", sparse_path))
+        # Use `add` (not `set`) so previously cached files from this repo are kept.
+        self._run(_git(repo, "sparse-checkout", "add", sparse_path))
         self._run(_git(repo, "checkout", "-q", "HEAD"))
         self._run(_git(repo, "lfs", "pull", "--include", relative))
 
         if not target.exists():
-            raise FileNotFoundError(f"File not found after git LFS pull: {file_path} in {repo_url}")
+            raise FileNotFoundError(
+                f"File not found after git LFS pull: {file_path} in {repo_url}"
+            )
         return target.resolve()
 
     @staticmethod
     def _run(cmd: list[str]) -> None:
         env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL
+        )
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip() or f"exit {result.returncode}"
             raise RuntimeError(f"{' '.join(cmd)} failed: {detail}")

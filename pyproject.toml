@@ -1,6 +1,6 @@
 [project]
 name = "modeldownloaderutil"
-version = "1.0.3"
+version = "1.0.4"
 description = "Download model files from local paths, HTTP, S3-compatible storage, GCS, and Git LFS."
 authors = [{ name = "Ashok Pant", email = "ashok@treeleaf.ai" }]
 readme = "README.md"
