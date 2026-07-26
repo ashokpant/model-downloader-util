@@ -45,6 +45,33 @@ def _is_usable_cached_file(path: Path) -> bool:
     return lfs_pointer_size(path) is None
 
 
+def _ensure_git_lfs() -> None:
+    """Fail fast when the ``git lfs`` subcommand is missing."""
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    result = subprocess.run(
+        ["git", "lfs", "version"],
+        capture_output=True,
+        text=True,
+        env=env,
+        stdin=subprocess.DEVNULL,
+    )
+    if result.returncode == 0:
+        return
+    detail = (result.stderr or result.stdout or "").strip()
+    raise RuntimeError(
+        "git-lfs is required to download git+ model weights, but "
+        f"`git lfs` is unavailable ({detail or f'exit {result.returncode}'}). "
+        "Install git-lfs (e.g. `apt-get install -y git-lfs && git lfs install`) "
+        "and retry."
+    )
+
+
+def _unlink_lfs_pointer_stub(path: Path) -> None:
+    """Remove an unresolved LFS pointer so checkout/pull can replace it."""
+    if path.is_file() and lfs_pointer_size(path) is not None:
+        path.unlink(missing_ok=True)
+
+
 class GitLFSProvider(ModelProvider):
     def can_handle(self, source: str) -> bool:
         return source.startswith("git+")
@@ -60,11 +87,16 @@ class GitLFSProvider(ModelProvider):
         if not force and _is_usable_cached_file(target):
             return target.resolve()
 
+        _ensure_git_lfs()
+
         repo_dir = git_repo_dir(repo_url)
         with exclusive_file_lock(git_repo_lock_path(repo_url)):
             # Another process may have finished while we waited for the lock.
             if not force and _is_usable_cached_file(target):
                 return target.resolve()
+
+            # Drop leftover pointer stubs from clones done without git-lfs.
+            _unlink_lfs_pointer_stub(target)
 
             repo_dir.mkdir(parents=True, exist_ok=True)
             repo = str(repo_dir)
@@ -99,8 +131,8 @@ class GitLFSProvider(ModelProvider):
             if lfs_pointer_size(target) is not None:
                 raise RuntimeError(
                     f"Git LFS pull left a pointer stub at {target}. "
-                    "Install git-lfs (`git lfs install`) and ensure the token can "
-                    "fetch LFS objects, then retry with force_download=True."
+                    "Install git-lfs (`git lfs install`) and ensure credentials "
+                    "can fetch LFS objects, then retry with force_download=True."
                 )
             return target.resolve()
 

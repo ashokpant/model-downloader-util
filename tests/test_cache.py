@@ -55,6 +55,10 @@ def test_git_lfs_uses_sparse_checkout_add(monkeypatch, tmp_path: Path) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"x")
 
+    monkeypatch.setattr(
+        "modeldownloaderutil.providers.git_lfs._ensure_git_lfs",
+        lambda: None,
+    )
     monkeypatch.setattr(provider, "_run", run_create)
     monkeypatch.setattr(provider, "_lfs_pull", lfs_pull)
 
@@ -106,6 +110,10 @@ def test_git_lfs_parallel_downloads_serialize(monkeypatch, tmp_path: Path) -> No
             with lock:
                 active -= 1
 
+    monkeypatch.setattr(
+        "modeldownloaderutil.providers.git_lfs._ensure_git_lfs",
+        lambda: None,
+    )
     monkeypatch.setattr(provider, "_run", run_create)
     monkeypatch.setattr(provider, "_lfs_pull", lfs_pull)
     monkeypatch.setattr(provider, "_update_repo", lambda repo: None)
@@ -156,6 +164,61 @@ def test_parse_lfs_progress_and_pointer(tmp_path: Path) -> None:
     with byte_bar("x", 10) as bar:
         bar.update(10)
         assert bar.n == 10
+
+
+def test_git_lfs_pointer_stub_is_not_a_cache_hit(monkeypatch, tmp_path: Path) -> None:
+    """Unresolved LFS pointer stubs must trigger a re-pull, not be returned as weights."""
+    from modeldownloaderutil.cache import git_file_path
+    from modeldownloaderutil.providers import git_lfs as git_lfs_mod
+
+    monkeypatch.setenv("MODEL_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(git_lfs_mod, "_ensure_git_lfs", lambda: None)
+
+    provider = GitLFSProvider()
+    source = "git+https://github.com/org/repo.git#weights/UNetEnh.onnx"
+    target = git_file_path("https://github.com/org/repo.git", "weights/UNetEnh.onnx")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        "version https://git-lfs.github.com/spec/v1\n"
+        "oid sha256:deadbeef\n"
+        "size 42\n"
+    )
+    assert not git_lfs_mod._is_usable_cached_file(target)
+
+    pulled: list[str] = []
+
+    def run_create(cmd: list[str]) -> None:
+        if "clone" in cmd:
+            Path(cmd[-1], ".git").mkdir(parents=True, exist_ok=True)
+
+    def lfs_pull(repo: str, relative: str, out: Path) -> None:
+        pulled.append(relative)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"onnx-bytes")
+
+    monkeypatch.setattr(provider, "_run", run_create)
+    monkeypatch.setattr(provider, "_lfs_pull", lfs_pull)
+    monkeypatch.setattr(provider, "_update_repo", lambda repo: None)
+
+    result = provider.download(source)
+    assert result.read_bytes() == b"onnx-bytes"
+    assert pulled == ["weights/UNetEnh.onnx"]
+
+
+def test_ensure_git_lfs_raises_when_missing(monkeypatch) -> None:
+    from modeldownloaderutil.providers.git_lfs import _ensure_git_lfs
+
+    def fake_run(*args, **kwargs):
+        class Result:
+            returncode = 1
+            stderr = "git: 'lfs' is not a git command"
+            stdout = ""
+
+        return Result()
+
+    monkeypatch.setattr("modeldownloaderutil.providers.git_lfs.subprocess.run", fake_run)
+    with pytest.raises(RuntimeError, match="git-lfs is required"):
+        _ensure_git_lfs()
 
 
 def test_exclusive_file_lock_blocks(tmp_path: Path) -> None:
