@@ -36,6 +36,15 @@ def _git(repo_dir: str, *args: str) -> list[str]:
     return ["git", *_QUIET, "-C", repo_dir, *args]
 
 
+def _is_usable_cached_file(path: Path) -> bool:
+    """True when ``path`` exists and is not an unresolved Git LFS pointer stub."""
+    if not path.is_file():
+        return False
+    # Pointer files are tiny text stubs; treating them as cache hits causes
+    # ONNXRuntime INVALID_PROTOBUF / "Protobuf parsing failed".
+    return lfs_pointer_size(path) is None
+
+
 class GitLFSProvider(ModelProvider):
     def can_handle(self, source: str) -> bool:
         return source.startswith("git+")
@@ -48,13 +57,13 @@ class GitLFSProvider(ModelProvider):
 
         relative, sparse_path = _git_paths(file_path)
         target = git_file_path(repo_url, relative)
-        if target.exists() and not force:
+        if not force and _is_usable_cached_file(target):
             return target.resolve()
 
         repo_dir = git_repo_dir(repo_url)
         with exclusive_file_lock(git_repo_lock_path(repo_url)):
             # Another process may have finished while we waited for the lock.
-            if target.exists() and not force:
+            if not force and _is_usable_cached_file(target):
                 return target.resolve()
 
             repo_dir.mkdir(parents=True, exist_ok=True)
@@ -86,6 +95,12 @@ class GitLFSProvider(ModelProvider):
             if not target.exists():
                 raise FileNotFoundError(
                     f"File not found after git LFS pull: {file_path} in {repo_url}"
+                )
+            if lfs_pointer_size(target) is not None:
+                raise RuntimeError(
+                    f"Git LFS pull left a pointer stub at {target}. "
+                    "Install git-lfs (`git lfs install`) and ensure the token can "
+                    "fetch LFS objects, then retry with force_download=True."
                 )
             return target.resolve()
 
