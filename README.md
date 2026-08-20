@@ -11,7 +11,7 @@ pip install modeldownloaderutil
 ## Usage
 
 ```python
-from modeldownloaderutil import download_model, sources
+from modeldownloaderutil import download_model, resolve_model, sources
 
 path = download_model("s3://bucket/models/weights.onnx")
 path = download_model("https://example.com/model.onnx")
@@ -26,6 +26,9 @@ path = download_model(sources(
 path = download_model(
     "rustfs://bucket/org/repo/weights/a.onnx,git+https://github.com/org/repo.git#weights/a.onnx"
 )
+
+# Unpack zip archives and locate the weights file (.onnx, .pt, …):
+path = resolve_model("s3://bucket/models/weights.onnx.zip")
 ```
 
 ## Schemes
