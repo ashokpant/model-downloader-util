@@ -4,8 +4,7 @@
 -- Created on: 04/06/2026
 """
 from .cache import cache_dir
-from .downloader import download_model
-from .rustfs import storage_key
+from .downloader import download_model, sources, split_sources
 
-__all__ = ["download_model", "cache_dir", "storage_key"]
-__version__ = "1.1.0"
+__all__ = ["download_model", "cache_dir", "sources", "split_sources"]
+__version__ = "1.2.0"

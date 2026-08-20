@@ -101,12 +101,14 @@ def normalize_s3_uri(source: str) -> tuple[str, str | None]:
         raw = (
             os.environ.get("RUSTFS_MODEL_ENDPOINT", "").strip()
             or os.environ.get("RUSTFS_ENDPOINT", "").strip()
-            or "https://s3.treeleaf.ai"
         )
+        if not raw:
+            raise ValueError("RUSTFS_MODEL_ENDPOINT is not set")
         if "://" not in raw:
             raw = f"https://{raw}"
         parsed_ep = urlparse(raw)
-        if parsed_ep.netloc:
-            endpoint = f"{parsed_ep.scheme}://{parsed_ep.netloc}"
+        if not parsed_ep.netloc:
+            raise ValueError(f"Invalid RUSTFS_MODEL_ENDPOINT: {raw}")
+        endpoint = f"{parsed_ep.scheme}://{parsed_ep.netloc}"
         source = "s3://" + source[len("rustfs://") :]
     return source, endpoint

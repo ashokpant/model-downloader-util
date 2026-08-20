@@ -16,13 +16,6 @@ from .providers.git_lfs import GitLFSProvider
 from .providers.http import HttpProvider
 from .providers.local import LocalProvider
 from .providers.s3 import S3Provider
-from .rustfs import (
-    cache_destination,
-    download_from_rustfs,
-    is_usable_cached_file,
-    rustfs_model_store,
-    storage_key,
-)
 
 _PROVIDERS: tuple[ModelProvider, ...] = (
     LocalProvider(),
@@ -34,46 +27,50 @@ _PROVIDERS: tuple[ModelProvider, ...] = (
 )
 
 
-def download_model(source: str, *, force_download: bool = False) -> Path:
-    """Resolve ``source`` to a local file.
+def split_sources(source: str) -> list[str]:
+    """Split a comma-separated source list (order = priority)."""
+    if not source or not str(source).strip():
+        return []
+    return [p.strip() for p in str(source).split(",") if p.strip()]
 
-    For ``git+`` URLs the lookup is **cache → RustFS → git**. RustFS uses the
-    same object key as git (``{owner}/{repo}/{file_path}``) so model paths do
-    not change across storage. Other schemes use their provider directly.
+
+def sources(*uris: str) -> str:
+    """Join URIs into a comma-separated priority list for ``download_model``."""
+    parts = [u.strip() for u in uris if u and str(u).strip()]
+    if not parts:
+        raise ValueError("sources() requires at least one URI")
+    return ",".join(parts)
+
+
+def download_model(source: str, *, force_download: bool = False) -> Path:
+    """Resolve ``source`` to a local cached file.
+
+    ``source`` is one URI, or several separated by commas (tried in order)::
+
+        download_model("rustfs://bucket/key.onnx,git+https://host/repo.git#key.onnx")
+
+    Supported schemes: local path, http(s), s3, minio, rustfs, gs, git+.
     """
     load_env()
+    candidates = split_sources(source)
+    if not candidates:
+        raise ValueError("empty model source")
+
     errors: list[str] = []
-
-    for provider in _PROVIDERS:
-        if isinstance(provider, LocalProvider) and provider.can_handle(source):
-            return provider.download(source, force=force_download)
-
-    dest = cache_destination(source)
-    if dest is not None and not force_download and is_usable_cached_file(dest):
-        return dest.resolve()
-
-    if dest is not None and storage_key(source) and rustfs_model_store() is not None:
+    for candidate in candidates:
         try:
-            path = download_from_rustfs(source, dest, force=force_download)
-            if path is not None:
-                return path
+            return _download_one(candidate, force_download=force_download)
         except Exception as exc:
-            msg = f"RustFS: {exc}"
-            errors.append(msg)
-            status(f"RustFS failed, trying next source ({exc})")
-
-    if dest is not None and not force_download and is_usable_cached_file(dest):
-        return dest.resolve()
-
-    for provider in _PROVIDERS:
-        if isinstance(provider, LocalProvider):
-            continue
-        if provider.can_handle(source):
-            try:
-                return provider.download(source, force=force_download)
-            except Exception as exc:
-                errors.append(f"{type(provider).__name__}: {exc}")
-                break
+            errors.append(f"{candidate}: {exc}")
+            if len(candidates) > 1:
+                status(f"Source failed, trying next ({exc})")
 
     detail = "; ".join(errors) if errors else "no provider handled the source"
-    raise RuntimeError(f"Could not download model {source}: {detail}")
+    raise RuntimeError(f"Could not download model: {detail}")
+
+
+def _download_one(source: str, *, force_download: bool) -> Path:
+    for provider in _PROVIDERS:
+        if provider.can_handle(source):
+            return provider.download(source, force=force_download)
+    raise ValueError(f"Unsupported source: {source}")
