@@ -17,7 +17,7 @@ from ..cache import cache_path, normalize_s3_uri
 from .base import ModelProvider
 
 _S3_CONFIG = Config(signature_version="s3v4", s3={"addressing_style": "path"})
-_SCHEME_ENV = {"minio://": "MINIO_ENDPOINT", "rustfs://": "RUSTFS_ENDPOINT"}
+_SCHEME_ENV = {"minio://": "MINIO_ENDPOINT", "rustfs://": "RUSTFS_MODEL_ENDPOINT"}
 
 
 class S3Provider(ModelProvider):
@@ -28,10 +28,12 @@ class S3Provider(ModelProvider):
         scheme = source.split("://", 1)[0] + "://"
         normalized, endpoint = normalize_s3_uri(source)
         if scheme in _SCHEME_ENV and not endpoint:
-            env_name = _SCHEME_ENV[scheme]
+            env_name = "RUSTFS_MODEL_ENDPOINT (or RUSTFS_ENDPOINT)" if scheme == "rustfs://" else _SCHEME_ENV[scheme]
             raise ValueError(f"{env_name} is not set (check .env)")
-        if not os.environ.get("MODEL_ACCESS_KEY") or not os.environ.get("MODEL_SECRET_KEY"):
-            raise ValueError("MODEL_ACCESS_KEY and MODEL_SECRET_KEY are not set (check .env)")
+        if not os.environ.get("RUSTFS_MODEL_ACCESS_KEY") and not os.environ.get("MODEL_ACCESS_KEY"):
+            raise ValueError("RUSTFS_MODEL_ACCESS_KEY or MODEL_ACCESS_KEY is not set")
+        if not os.environ.get("RUSTFS_MODEL_SECRET_KEY") and not os.environ.get("MODEL_SECRET_KEY"):
+            raise ValueError("RUSTFS_MODEL_SECRET_KEY or MODEL_SECRET_KEY is not set")
 
         destination = cache_path(normalized)
         parsed = urlparse(normalized)
@@ -43,8 +45,8 @@ class S3Provider(ModelProvider):
         client = boto3.client(
             "s3",
             endpoint_url=endpoint,
-            aws_access_key_id=os.environ.get("MODEL_ACCESS_KEY"),
-            aws_secret_access_key=os.environ.get("MODEL_SECRET_KEY"),
+            aws_access_key_id=os.environ.get("RUSTFS_MODEL_ACCESS_KEY") or os.environ.get("MODEL_ACCESS_KEY"),
+            aws_secret_access_key=os.environ.get("RUSTFS_MODEL_SECRET_KEY") or os.environ.get("MODEL_SECRET_KEY"),
             config=_S3_CONFIG,
         )
         return download_with_cache(destination, lambda path: download_s3_object(client, bucket, key, path), force=force)

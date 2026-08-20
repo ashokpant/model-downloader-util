@@ -23,7 +23,22 @@ def cache_dir() -> Path:
     return Path(user_cache_dir(APP_NAME, appauthor=APP_AUTHOR))
 
 
+def parse_git_source(source: str) -> tuple[str, str] | None:
+    """Return ``(repo_url, file_path)`` for ``git+https://host/org/repo.git#path``."""
+    if not source.startswith("git+"):
+        return None
+    repo_url, _, file_path = source[4:].partition("#")
+    file_path = file_path.lstrip("/")
+    if not repo_url or not file_path:
+        return None
+    return repo_url, file_path
+
+
 def cache_path(source: str) -> Path:
+    git = parse_git_source(source)
+    if git is not None:
+        return git_file_path(git[0], git[1])
+
     parsed = urlparse(source)
     scheme = _SCHEME_ALIASES.get(parsed.scheme, parsed.scheme)
     root = cache_dir()
@@ -83,6 +98,15 @@ def normalize_s3_uri(source: str) -> tuple[str, str | None]:
         endpoint = os.environ.get("MINIO_ENDPOINT")
         source = "s3://" + source[len("minio://") :]
     elif source.startswith("rustfs://"):
-        endpoint = os.environ.get("RUSTFS_ENDPOINT")
+        raw = (
+            os.environ.get("RUSTFS_MODEL_ENDPOINT", "").strip()
+            or os.environ.get("RUSTFS_ENDPOINT", "").strip()
+            or "https://s3.treeleaf.ai"
+        )
+        if "://" not in raw:
+            raw = f"https://{raw}"
+        parsed_ep = urlparse(raw)
+        if parsed_ep.netloc:
+            endpoint = f"{parsed_ep.scheme}://{parsed_ep.netloc}"
         source = "s3://" + source[len("rustfs://") :]
     return source, endpoint
