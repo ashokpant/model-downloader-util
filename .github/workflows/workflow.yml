@@ -2,9 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches: [ main ]
 
 jobs:
   test:
@@ -12,12 +10,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        python-version: [ "3.11", "3.12", "3.13", "3.14" ]
     steps:
       - uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -33,16 +31,100 @@ jobs:
       - name: Pytest
         run: uv run pytest
 
-  build:
+  release:
     runs-on: ubuntu-latest
     needs: test
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
-      - name: Build package
+      - name: Get next tag
+        id: version
+        run: |
+          set -euo pipefail
+          LAST_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]\+\.[0-9]\+\.[0-9]\+$' | head -n 1 || true)
+          LAST_TAG=${LAST_TAG:-v0.0.0}
+
+          VERSION="${LAST_TAG#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${VERSION}"
+
+          NEXT_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          NEXT_TAG="v${NEXT_VERSION}"
+
+          echo "tag=${NEXT_TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${NEXT_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Set version for build
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+
+          pyproject = Path("pyproject.toml")
+          init_py = Path("modeldownloaderutil/__init__.py")
+
+          py_text = pyproject.read_text(encoding="utf-8")
+          py_new = re.sub(
+              r'(?m)^version\s*=\s*"[0-9]+\.[0-9]+\.[0-9]+"$',
+              f'version = "{version}"',
+              py_text,
+              count=1,
+          )
+          if py_new == py_text:
+              raise SystemExit("pyproject.toml version line not found")
+          pyproject.write_text(py_new, encoding="utf-8")
+
+          init_text = init_py.read_text(encoding="utf-8")
+          init_new = re.sub(
+              r'(?m)^__version__\s*=\s*"[0-9]+\.[0-9]+\.[0-9]+"$',
+              f'__version__ = "{version}"',
+              init_text,
+              count=1,
+          )
+          if init_new == init_text:
+              raise SystemExit("modeldownloaderutil/__init__.py __version__ line not found")
+          init_py.write_text(init_new, encoding="utf-8")
+          PY
+
+      - name: Create and push git tag
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${TAG}"
+          git push origin "${TAG}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+
+      - name: Build
         run: uv build
+
+      - name: Publish to PyPI
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.UV_PUBLISH_TOKEN }}
+        run: uv publish --index pypi
