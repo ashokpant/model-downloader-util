@@ -27,6 +27,9 @@ class S3Provider(ModelProvider):
     def download(self, source: str, *, force: bool = False) -> Path:
         scheme = source.split("://", 1)[0] + "://"
         normalized, endpoint = normalize_s3_uri(source)
+        destination = cache_path(normalized)
+        if destination.exists() and not force:
+            return destination.resolve()
         if scheme in _SCHEME_ENV and not endpoint:
             env_name = "RUSTFS_MODEL_ENDPOINT (or RUSTFS_ENDPOINT)" if scheme == "rustfs://" else _SCHEME_ENV[scheme]
             raise ValueError(f"{env_name} is not set (check .env)")
@@ -35,7 +38,6 @@ class S3Provider(ModelProvider):
         if not os.environ.get("RUSTFS_MODEL_SECRET_KEY") and not os.environ.get("MODEL_SECRET_KEY"):
             raise ValueError("RUSTFS_MODEL_SECRET_KEY or MODEL_SECRET_KEY is not set")
 
-        destination = cache_path(normalized)
         parsed = urlparse(normalized)
         bucket = parsed.netloc
         key = parsed.path.lstrip("/")
